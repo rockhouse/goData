@@ -17,6 +17,7 @@ func init() {
 
 }
 
+//check push
 func handler(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 
