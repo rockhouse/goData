@@ -131,6 +131,8 @@ func fetchContent(c appengine.Context, url string) (string, error) {
 
 func sendReq(c appengine.Context, req *http.Request) (string, error) {
 	req.Header.Add("User-Agent", UserAgent)
+	req.Header.Add("Referer", Referrer)
+	req.Header.Add("Host", HostHeader)
 	client := urlfetch.Client(c)
 	resp, err := client.Do(req)
 
