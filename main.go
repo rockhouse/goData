@@ -45,12 +45,16 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	azID := txt[strings.Index(txt, AuthID)+19 : strings.Index(txt, "==\";")+2]
-	c.Debugf("API AZ ID: %v", azID)
+	c.Debugf("API AZID: %v", azID)
 
 	// Get user id
-	unixTime := time.Now().Unix()
+	//unixTime := time.Now().UnixNano()
+	unixTime := (time.Now().UnixNano() / 1e6)
+	//c.Debugf("TIME in Miliseconds: %s", time.Now().UnixNano()%1e6/1e3)
+	fmt.Fprintf(w, "TIME in Miliseconds: %v", unixTime)
 	urlUserID := URLUserID
 	urlUserID = strings.Replace(urlUserID, "[[AZID]]", azID, 1)
+	//	urlUserID = strings.Replace(urlUserID, "[[UNIXTIME]]", strconv.FormatInt(unixTime, 13), 1)
 	urlUserID = strings.Replace(urlUserID, "[[UNIXTIME]]", strconv.FormatInt(unixTime, 10), 1)
 	txt, err = fetchContent(c, urlUserID)
 
@@ -132,7 +136,7 @@ func fetchContent(c appengine.Context, url string) (string, error) {
 func sendReq(c appengine.Context, req *http.Request) (string, error) {
 	req.Header.Add("User-Agent", UserAgent)
 	req.Header.Add("Referer", Referrer)
-	req.Header.Add("Host", HostHeader)
+	//req.Header.Add("Host", HostHeader)
 	client := urlfetch.Client(c)
 	resp, err := client.Do(req)
 
