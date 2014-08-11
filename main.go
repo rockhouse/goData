@@ -1,6 +1,7 @@
-package goData
+package main
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 
 func init() {
 	http.HandleFunc("/", handler)
-
 }
 
 //check push
@@ -26,15 +26,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf("%v", err)
+		return
 	}
-	startIndex := txt[strings.Index(txt, "@IdNotation(")+12:]
-	IsinAndNotation := startIndex[:strings.Index(startIndex, ")")]
-	IDArray := strings.Split(IsinAndNotation, "=")
-	NotationIDs := strings.Split(IDArray[2][1:len(IDArray[2])-1], ",")
 
-	if len(NotationIDs) < 3 {
-		http.Error(w, "Could not find Notational IDs", http.StatusInternalServerError)
-		c.Errorf("Could not find Notational IDs")
+	notationIDs, err := extractNotationIDs(txt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.Errorf(err.Error())
+		return
 	}
 
 	// Get azID
@@ -48,13 +47,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	c.Debugf("API AZID: %v", azID)
 
 	// Get user id
-	//unixTime := time.Now().UnixNano()
 	unixTime := (time.Now().UnixNano() / 1e6)
-	//c.Debugf("TIME in Miliseconds: %s", time.Now().UnixNano()%1e6/1e3)
 	fmt.Fprintf(w, "TIME in Miliseconds: %v", unixTime)
 	urlUserID := URLUserID
 	urlUserID = strings.Replace(urlUserID, "[[AZID]]", azID, 1)
-	//	urlUserID = strings.Replace(urlUserID, "[[UNIXTIME]]", strconv.FormatInt(unixTime, 13), 1)
 	urlUserID = strings.Replace(urlUserID, "[[UNIXTIME]]", strconv.FormatInt(unixTime, 10), 1)
 	txt, err = fetchContent(c, urlUserID)
 
@@ -77,17 +73,17 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	urlReqPrice := URLReqPrice
 	urlReqPrice = strings.Replace(urlReqPrice, "[[AZID]]", azID, 1)
 	urlReqPrice = strings.Replace(urlReqPrice, "[[UNDERLYING]]", "Hr", 1)
-	urlReqPrice = strings.Replace(urlReqPrice, "[[IDNOTATION]]", NotationIDs[0], 1)
+	urlReqPrice = strings.Replace(urlReqPrice, "[[IDNOTATION]]", notationIDs[0], 1)
 	postValue := urlReqPrice
 	urlReqPrice = URLReqPrice
 	urlReqPrice = strings.Replace(urlReqPrice, "[[AZID]]", azID, 1)
 	urlReqPrice = strings.Replace(urlReqPrice, "[[UNDERLYING]]", "Ht", 1)
-	urlReqPrice = strings.Replace(urlReqPrice, "[[IDNOTATION]]", NotationIDs[1], 1)
+	urlReqPrice = strings.Replace(urlReqPrice, "[[IDNOTATION]]", notationIDs[1], 1)
 	postValue += urlReqPrice
 	urlReqPrice = URLReqPrice
 	urlReqPrice = strings.Replace(urlReqPrice, "[[AZID]]", azID, 1)
 	urlReqPrice = strings.Replace(urlReqPrice, "[[UNDERLYING]]", "Hv", 1)
-	urlReqPrice = strings.Replace(urlReqPrice, "[[IDNOTATION]]", NotationIDs[2], 1)
+	urlReqPrice = strings.Replace(urlReqPrice, "[[IDNOTATION]]", notationIDs[2], 1)
 	postValue += urlReqPrice
 
 	urlPrice := URLPrice
@@ -112,6 +108,20 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "CONTENT: %s", txt)
 
+}
+
+// Extracts the three NotationIDs from a given string. Returns an error
+// it can not find three ID's
+func extractNotationIDs(str string) ([]string, error) {
+	startIndex := str[strings.Index(str, "@IdNotation(")+12:]
+	isinAndNotation := startIndex[:strings.Index(startIndex, ")")]
+	arr := strings.Split(isinAndNotation, "=")
+	notationIDs := strings.Split(arr[2][1:len(arr[2])-1], ",")
+
+	if len(notationIDs) < 3 {
+		return nil, errors.New("Could not find Notational IDs")
+	}
+	return notationIDs, nil
 }
 
 func postContent(c appengine.Context, url string, content string) (string, error) {
