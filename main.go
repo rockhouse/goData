@@ -41,30 +41,37 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf("%v", err)
+		return
 	}
 
 	azID := txt[strings.Index(txt, AuthID)+19 : strings.Index(txt, "==\";")+2]
 	c.Debugf("API AZID: %v", azID)
 
-	// Get user id
+	// Get first user id (?)
 	unixTime := (time.Now().UnixNano() / 1e6)
-	fmt.Fprintf(w, "TIME in Miliseconds: %v", unixTime)
-	urlUserID := URLUserID
+	urlUserID := URLUserIDFirst
+	urlUserID = strings.Replace(urlUserID, "[[AZID]]", azID, 1)
+	urlUserID = strings.Replace(urlUserID, "[[UNIXTIME]]", strconv.FormatInt(unixTime, 10), 1)
+	txt, err = fetchContent(c, urlUserID)
+
+	// Get user id
+	//unixTime := (time.Now().UnixNano() / 1e6)
+	urlUserID = URLUserID
 	urlUserID = strings.Replace(urlUserID, "[[AZID]]", azID, 1)
 	urlUserID = strings.Replace(urlUserID, "[[UNIXTIME]]", strconv.FormatInt(unixTime, 10), 1)
 	txt, err = fetchContent(c, urlUserID)
 
 	if len(txt) < 1 {
-		c.Errorf("Got empty userID respone")
-		http.Error(w, "Got empty userID respone", http.StatusInternalServerError)
+		c.Errorf("Got empty userID respones")
+		http.Error(w, "Got empty userID respones", http.StatusInternalServerError)
 		return
 	}
 
 	userID := strings.TrimSpace(strings.Split(txt, ";")[6])
 	proxy := strings.TrimSpace(strings.Split(txt, ";")[9])
 	if strings.Contains(userID, "-ZpUK.") {
-		c.Errorf("Got wrong userID respone")
-		http.Error(w, "Got wrong userID respone", http.StatusInternalServerError)
+		c.Errorf("Got wrong userID respones")
+		http.Error(w, "Got wrong userID respones", http.StatusInternalServerError)
 		return
 	}
 	c.Debugf("FOUND USERID: %v", userID)
@@ -102,9 +109,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	urlUpdate = strings.Replace(urlUpdate, "[[PROXY]]", proxy, 1)
 	urlUpdate = strings.Replace(urlUpdate, "[[TIME]]", strconv.FormatInt(time.Now().UnixNano()/1e6, 10), 1)
 
-	fmt.Fprintf(w, "URL: %v", urlUpdate)
+	fmt.Fprintf(w, "Update URL: %v", urlUpdate)
 
-	txt, err = fetchContent(c, urlUserID)
+	txt, err = fetchContent(c, urlUpdate)
 
 	fmt.Fprintf(w, "CONTENT: %s", txt)
 
