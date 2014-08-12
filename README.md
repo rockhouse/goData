@@ -1,5 +1,4 @@
-[![Build Status](https://api.travis-ci.org/rockhouse/goData.png)](https://api.travis-ci.org/rockhouse/goData)
-
+[![Build Status](https://travis-ci.org/rockhouse/goData.svg)](https://travis-ci.org/rockhouse/goData)
 goData
 ======
 
