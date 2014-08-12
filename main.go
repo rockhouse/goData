@@ -47,18 +47,17 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	azID := txt[strings.Index(txt, AuthID)+19 : strings.Index(txt, "==\";")+2]
 	c.Debugf("API AZID: %v", azID)
 
-	// Get first user id (?)
-	unixTime := (time.Now().UnixNano() / 1e6)
-	urlUserID := URLUserIDFirst
-	urlUserID = strings.Replace(urlUserID, "[[AZID]]", azID, 1)
-	urlUserID = strings.Replace(urlUserID, "[[UNIXTIME]]", strconv.FormatInt(unixTime, 10), 1)
-	txt, err = fetchContent(c, urlUserID)
-
 	// Get user id
 	//unixTime := (time.Now().UnixNano() / 1e6)
-	urlUserID = URLUserID
-	urlUserID = strings.Replace(urlUserID, "[[AZID]]", azID, 1)
-	urlUserID = strings.Replace(urlUserID, "[[UNIXTIME]]", strconv.FormatInt(unixTime, 10), 1)
+	unixTime := (time.Now().UnixNano() / 1e6)
+
+	urlUserID, err := prepareURL(URLUserID, azID, strconv.FormatInt(unixTime, 10))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.Errorf("%v", err)
+		return
+	}
+
 	txt, err = fetchContent(c, urlUserID)
 
 	if len(txt) < 1 {
@@ -77,37 +76,25 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	c.Debugf("FOUND USERID: %v", userID)
 
 	//Request Price
-	urlReqPrice := URLReqPrice
-	urlReqPrice = strings.Replace(urlReqPrice, "[[AZID]]", azID, 1)
-	urlReqPrice = strings.Replace(urlReqPrice, "[[UNDERLYING]]", "Hr", 1)
-	urlReqPrice = strings.Replace(urlReqPrice, "[[IDNOTATION]]", notationIDs[0], 1)
+	urlReqPrice, err := prepareURL(URLReqPrice, azID, "Hr", notationIDs[0])
 	postValue := urlReqPrice
-	urlReqPrice = URLReqPrice
-	urlReqPrice = strings.Replace(urlReqPrice, "[[AZID]]", azID, 1)
-	urlReqPrice = strings.Replace(urlReqPrice, "[[UNDERLYING]]", "Ht", 1)
-	urlReqPrice = strings.Replace(urlReqPrice, "[[IDNOTATION]]", notationIDs[1], 1)
+	urlReqPrice, err = prepareURL(URLReqPrice, azID, "Ht", notationIDs[1])
 	postValue += urlReqPrice
-	urlReqPrice = URLReqPrice
-	urlReqPrice = strings.Replace(urlReqPrice, "[[AZID]]", azID, 1)
-	urlReqPrice = strings.Replace(urlReqPrice, "[[UNDERLYING]]", "Hv", 1)
-	urlReqPrice = strings.Replace(urlReqPrice, "[[IDNOTATION]]", notationIDs[2], 1)
+	urlReqPrice, err = prepareURL(URLReqPrice, azID, "Hv", notationIDs[2])
 	postValue += urlReqPrice
 
-	urlPrice := URLPrice
-	urlPrice = strings.Replace(urlPrice, "[[AZID]]", azID, 1)
-	urlPrice = strings.Replace(urlPrice, "[[USERID]]", userID, 1)
-	urlPrice = strings.Replace(urlPrice, "[[PROXY]]", proxy, 1)
+	urlPrice, err := prepareURL(URLPrice, azID, userID, proxy)
 	txt, err = postContent(c, urlPrice, postValue)
 
 	fmt.Fprintf(w, "AZID: %v\nUSERID: %v\n", azID, userID)
 
 	//Request Data Update
-
-	urlUpdate := URLUpdate
-	urlUpdate = strings.Replace(urlUpdate, "[[AZID]]", azID, 1)
-	urlUpdate = strings.Replace(urlUpdate, "[[USERID]]", userID, 1)
-	urlUpdate = strings.Replace(urlUpdate, "[[PROXY]]", proxy, 1)
-	urlUpdate = strings.Replace(urlUpdate, "[[TIME]]", strconv.FormatInt(time.Now().UnixNano()/1e6, 10), 1)
+	urlUpdate, err := prepareURL(URLUpdate, azID, userID, proxy, strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.Errorf("%v", err)
+		return
+	}
 
 	fmt.Fprintf(w, "Update URL: %v", urlUpdate)
 
@@ -163,6 +150,26 @@ func sendReq(c appengine.Context, req *http.Request) (string, error) {
 
 	defer resp.Body.Close()
 	b, err := ioutil.ReadAll(resp.Body)
-	c.Debugf("URL Body: %s \nBODY END", b)
+	// c.Debugf("URL Body: %s \nBODY END", b)
 	return string(b), err
+}
+
+func prepareURL(tmpl string, values ...string) (string, error) {
+	if tmpl == "" || values == nil {
+		return "", errors.New("no arguments given")
+	}
+	count := strings.Count(tmpl, "[[?]]")
+
+	if len(values) < count {
+		return "", errors.New("too many parameters provided")
+	} else if len(values) > count {
+		return "", errors.New("too few parameters provided")
+	}
+
+	returnValue := tmpl
+	for _, value := range values {
+		returnValue = strings.Replace(returnValue, "[[?]]", value, 1)
+	}
+
+	return returnValue, nil
 }
