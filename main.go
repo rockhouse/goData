@@ -17,7 +17,7 @@ var azID, proxy, userID string
 
 func init() {
 	http.HandleFunc("/", handler)
-	http.HandleFunc("/update", handler)
+	http.HandleFunc("/update", update)
 }
 
 //check push
@@ -110,6 +110,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func update(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	c.Debugf("Update function")
+
+	pushUpdate, err := prepareURL(PushUpdate, proxy, azID, userID, strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.Errorf("%v", err)
+		return
+	}
+
 }
 
 // Extracts the three NotationIDs from a given string. Returns an error
