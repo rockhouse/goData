@@ -1,4 +1,4 @@
-package main
+package goData
 
 const (
 	URLIDNOTATION = "book"
