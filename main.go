@@ -76,20 +76,20 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	c.Debugf("FOUND USERID: %v", userID)
 
 	//Request Price
-	urlReqPrice, err := prepareURL(URLReqPrice, azID, "Hr", notationIDs[0])
+	urlReqPrice, err := prepareURL(URLReqPrice, azID, notationIDs[0], "Hr")
 	postValue := urlReqPrice
-	urlReqPrice, err = prepareURL(URLReqPrice, azID, "Ht", notationIDs[1])
+	urlReqPrice, err = prepareURL(URLReqPrice, azID, notationIDs[1], "Ht")
 	postValue += urlReqPrice
-	urlReqPrice, err = prepareURL(URLReqPrice, azID, "Hv", notationIDs[2])
+	urlReqPrice, err = prepareURL(URLReqPrice, azID, notationIDs[2], "Hv")
 	postValue += urlReqPrice
 
-	urlPrice, err := prepareURL(URLPrice, azID, userID, proxy)
+	urlPrice, err := prepareURL(URLPrice, proxy, azID, userID)
 	txt, err = postContent(c, urlPrice, postValue)
 
 	fmt.Fprintf(w, "AZID: %v\nUSERID: %v\n", azID, userID)
 
 	//Request Data Update
-	urlUpdate, err := prepareURL(URLUpdate, azID, userID, proxy, strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
+	urlUpdate, err := prepareURL(URLUpdate, proxy, azID, userID, strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf("%v", err)
