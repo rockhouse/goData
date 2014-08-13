@@ -160,11 +160,11 @@ func prepareURL(tmpl string, values ...string) (string, error) {
 	}
 	count := strings.Count(tmpl, "[[?]]")
 
-	// if len(values) < count {
-	// 	return "", errors.New("too many parameters provided")
-	// } else if len(values) > count {
-	// 	return "", errors.New("too few parameters provided")
-	// }
+	if len(values) < count {
+		return "", errors.New("too many parameters provided")
+	} else if len(values) > count {
+		return "", errors.New("too few parameters provided")
+	}
 
 	returnValue := tmpl
 	for _, value := range values {
