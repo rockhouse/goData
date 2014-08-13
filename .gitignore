@@ -1,3 +1,5 @@
+app.yaml_example
+configuration.go_example
 app.yaml
 configuration.go
 curl.txt
