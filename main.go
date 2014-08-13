@@ -13,7 +13,7 @@ import (
 	"appengine/urlfetch"
 )
 
-var azID, proxy, userID String
+var azID, proxy, userID string
 
 func init() {
 	http.HandleFunc("/", handler)
@@ -109,6 +109,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 func update(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
+	c.Debugf("Update function")
 }
 
 // Extracts the three NotationIDs from a given string. Returns an error
