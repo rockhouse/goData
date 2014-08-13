@@ -13,8 +13,11 @@ import (
 	"appengine/urlfetch"
 )
 
+var azID, proxy, userID String
+
 func init() {
 	http.HandleFunc("/", handler)
+	http.HandleFunc("/update", handler)
 }
 
 //check push
@@ -44,7 +47,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	azID := txt[strings.Index(txt, AuthID)+19 : strings.Index(txt, "==\";")+2]
+	azID = txt[strings.Index(txt, AuthID)+19 : strings.Index(txt, "==\";")+2]
 	c.Debugf("API AZID: %v", azID)
 
 	// Get user id
@@ -66,8 +69,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := strings.TrimSpace(strings.Split(txt, ";")[6])
-	proxy := strings.TrimSpace(strings.Split(txt, ";")[9])
+	userID = strings.TrimSpace(strings.Split(txt, ";")[6])
+	proxy = strings.TrimSpace(strings.Split(txt, ";")[9])
 	if strings.Contains(userID, "-ZpUK.") {
 		c.Errorf("Got wrong userID respones")
 		http.Error(w, "Got wrong userID respones", http.StatusInternalServerError)
@@ -102,6 +105,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "CONTENT: %s", txt)
 
+}
+
+func update(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
 }
 
 // Extracts the three NotationIDs from a given string. Returns an error
