@@ -117,6 +117,9 @@ func update(w http.ResponseWriter, r *http.Request) {
 		c.Errorf("%v", err)
 		return
 	}
+	txt, err := fetchContent(c, pushUpdate)
+
+	fmt.Fprintf(w, "CONTENT: %s", txt)
 
 }
 
