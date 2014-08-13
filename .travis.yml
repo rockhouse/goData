@@ -9,4 +9,4 @@ install:
   - mv app.yaml_example app.yaml
 
 # run build
-script: ./go_appengine/goapp build
+script: ./go_appengine/goapp build .
