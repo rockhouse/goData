@@ -90,7 +90,7 @@ func initiate(w http.ResponseWriter, r *http.Request) {
 	urlPrice, err := prepareURL(URLPrice, proxy, azID, userID)
 	txt, err = postContent(c, urlPrice, postValue)
 
-	fmt.Fprintf(w, "AZID: %v\nUSERID: %v\n", azID, userID)
+	fmt.Fprintf(w, "AZID: %.5s...\nUSERID: %.5s...\nInitialization successful.\n\n", azID, userID)
 
 	//Request Data Update
 	urlUpdate, err := prepareURL(URLUpdate, proxy, azID, userID, strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
@@ -100,13 +100,12 @@ func initiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, "Update URL: %v", urlUpdate)
-
 	txt, err = fetchContent(c, urlUpdate)
 
-	fmt.Fprintf(w, "CONTENT: %s", txt)
+	fmt.Fprintf(w, "%s", txt)
 
 }
+
 func help(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "Available Commands:\n /init \n /update \n")
 }
@@ -115,7 +114,13 @@ func update(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	c.Debugf("Update function")
 
-	pushUpdate, err := prepareURL(PushUpdate, proxy, azID, userID, strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
+	if proxy == "" || azID == "" || userID == "" {
+		http.Error(w, "ERROR: proxy, azID or userID unknown. Did you run init first?", http.StatusInternalServerError)
+		return
+	}
+
+	pushUpdate, err := prepareURL(PushUpdate, proxy, azID, userID,
+		strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf("%v", err)
@@ -123,7 +128,8 @@ func update(w http.ResponseWriter, r *http.Request) {
 	}
 	txt, err := fetchContent(c, pushUpdate)
 
-	fmt.Fprintf(w, "CONTENT: %s", txt)
+	fmt.Fprintf(w, "AZID: %.5s...\nUSERID: %.5s...\n\n", azID, userID)
+	fmt.Fprintf(w, "%s", txt)
 
 }
 
