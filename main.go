@@ -75,7 +75,7 @@ func initiate(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(userID, "-ZpUK.") {
 		c.Errorf("Got wrong userID respones")
 		http.Error(w, "Got wrong userID respones", http.StatusInternalServerError)
-		return
+		//	return
 	}
 	c.Debugf("FOUND USERID: %v", userID)
 
@@ -130,6 +130,12 @@ func update(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "AZID: %.5s...\nUSERID: %.5s...\n\n", azID, userID)
 	fmt.Fprintf(w, "%s", txt)
+
+	if strings.Contains(txt, "421 InvalidPushClientId") {
+		http.Error(w, "Invalid Push Client ID - Start init again", http.StatusInternalServerError)
+		c.Errorf("Invalid Push Client ID - Start init again")
+		return
+	}
 
 }
 
