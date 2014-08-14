@@ -16,6 +16,7 @@ import (
 var azID, proxy, userID string
 
 func init() {
+	http.HandleFunc("/", help)
 	http.HandleFunc("/init", initiate)
 	http.HandleFunc("/update", update)
 }
@@ -105,6 +106,9 @@ func initiate(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "CONTENT: %s", txt)
 
+}
+func help(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "Available Commands:\n /init \n /update \n")
 }
 
 func update(w http.ResponseWriter, r *http.Request) {
