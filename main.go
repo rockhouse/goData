@@ -16,12 +16,12 @@ import (
 var azID, proxy, userID string
 
 func init() {
-	http.HandleFunc("/", handler)
+	http.HandleFunc("/init", initiate)
 	http.HandleFunc("/update", update)
 }
 
 //check push
-func handler(w http.ResponseWriter, r *http.Request) {
+func initiate(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 
 	// Get ID Notation (IDs for underlying by expiry)
