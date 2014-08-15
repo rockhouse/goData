@@ -103,7 +103,9 @@ func initiate(w http.ResponseWriter, r *http.Request) {
 	txt, err = fetchContent(c, urlUpdate)
 
 	fmt.Fprintf(w, "%s", txt)
-
+	c.Debugf("Starting Background Task")
+	go CreateTestLogEntry(c)
+	time.Sleep(60000 * time.Millisecond)
 }
 
 func help(w http.ResponseWriter, r *http.Request) {
@@ -207,4 +209,14 @@ func prepareURL(tmpl string, values ...string) (string, error) {
 	}
 
 	return returnValue, nil
+}
+
+var i int
+
+func CreateTestLogEntry(c appengine.Context) {
+	for {
+		i++
+		c.Debugf("tick %d", i)
+		time.Sleep(1000 * time.Millisecond)
+	}
 }

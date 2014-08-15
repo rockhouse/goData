@@ -58,5 +58,4 @@ func TestPrepareURL(t *testing.T) {
 		t.Errorf("prepareURL(%s, %s, %s, %s) should return "+
 			"'too many parameters provided'", urlTemplate, id1, id2, id1)
 	}
-
 }
