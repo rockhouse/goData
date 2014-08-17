@@ -155,8 +155,19 @@ func update(c appengine.Context, azID string, proxy string, userID string) {
 		scheduleNextUpdate.Call(c, azID, proxy, userID)
 		return
 	}
+	//Is it time to stop working?
+	t, err := timeToDie(time.Now())
+	if t {
+		return
+	}
+	if err != nil {
+		c.Errorf("Error with TimeZone: %v", err)
+		return
+	}
 
 	time.Sleep(1000 * time.Millisecond)
+	//Is it time to stop and go home?
+
 	scheduleNextUpdate.Call(c, azID, proxy, userID)
 }
 
@@ -259,4 +270,15 @@ func storeData(unixTime int64, txt string, update bool,
 		return err
 	}
 	return nil
+}
+
+func timeToDie(t time.Time) (bool, error) {
+	//Time should be UTC! So CET should be 22:00
+	if t.Location() != time.UTC {
+		return false, errors.New("wrong Timezone!")
+	}
+	if t.Hour() >= 20 && t.Minute() >= 01 {
+		return true, nil
+	}
+	return false, nil
 }
