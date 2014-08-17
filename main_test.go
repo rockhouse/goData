@@ -1,6 +1,28 @@
 package goData
 
 import "testing"
+import "time"
+
+func TestTimeToDie(t *testing.T) {
+	var (
+		in   = time.Date(2014, 8, 17, 20, 01, 00, 0, time.UTC)
+		want = true
+	)
+	got, err := timeToDie(in)
+	//sucess
+	if got != want {
+		t.Errorf("timeToDie should have returned true, but returned %v, we want %v", got, want)
+	}
+
+	loc, _ := time.LoadLocation("Europe/Berlin")
+	const shortForm = "2006-Jan-02"
+	inNotUTC, _ := time.ParseInLocation(shortForm, "2012-Jul-09", loc)
+
+	got, err = timeToDie(inNotUTC)
+	if err == nil {
+		t.Errorf("timeToDie should through timeZone Error")
+	}
+}
 
 func TestExtractNotationIDs(t *testing.T) {
 	var (
