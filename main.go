@@ -16,10 +16,10 @@ import (
 	"appengine/urlfetch"
 )
 
-type datastoreEntry struct {
-	timestamp  int64
-	blobValues string
-	update     bool
+type DatastoreEntry struct {
+	Timestamp  int64
+	BlobValues string
+	Update     bool
 }
 
 var scheduleNextUpdate *delay.Function
@@ -42,7 +42,7 @@ func initiate(c appengine.Context) (azID, proxy, userID string) {
 	//lets test the datastore can be deleted later
 	err = storeData((time.Now().UnixNano() / 1e6), "Test entry in datastore", true, c)
 	if err != nil {
-		c.Errorf("%v", err)
+		c.Errorf("Storing Error %v", err)
 		return
 	}
 
@@ -97,7 +97,7 @@ func initiate(c appengine.Context) (azID, proxy, userID string) {
 	txt, err = postContent(c, urlPrice, postValue)
 	err = storeData(unixTime, txt, false, c)
 	if err != nil {
-		c.Errorf("%v", err)
+		c.Errorf("Storing error: %v", err)
 		return
 	}
 
@@ -112,7 +112,7 @@ func initiate(c appengine.Context) (azID, proxy, userID string) {
 	txt, err = fetchContent(c, urlUpdate)
 	err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
 	if err != nil {
-		c.Errorf("%v", err)
+		c.Errorf("Storing error: %v", err)
 		return
 	}
 
@@ -141,7 +141,7 @@ func update(c appengine.Context, azID string, proxy string, userID string) {
 	txt, err := fetchContent(c, pushUpdate)
 	err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
 	if err != nil {
-		c.Errorf("%v", err)
+		c.Errorf("Storing error: %v", err)
 		return
 	}
 
@@ -243,10 +243,11 @@ func storeData(unixTime int64, txt string, update bool,
 		return errors.New("no arguments given")
 	}
 
-	blob := datastoreEntry{
-		timestamp:  unixTime,
-		blobValues: txt,
-		update:     false,
+	txt = fmt.Sprintf("%0.400s", txt)
+	blob := DatastoreEntry{
+		Timestamp:  unixTime,
+		BlobValues: txt,
+		Update:     false,
 	}
 
 	incompleteKey := datastore.NewIncompleteKey(c, "datastoreEntry", nil)
