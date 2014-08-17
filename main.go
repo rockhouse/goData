@@ -11,9 +11,16 @@ import (
 	"time"
 
 	"appengine"
+	"appengine/datastore"
 	"appengine/delay"
 	"appengine/urlfetch"
 )
+
+type DatastoreEntry struct {
+	Timestamp  int64
+	BlobValues string
+	Update     bool
+}
 
 var scheduleNextUpdate *delay.Function
 
@@ -24,10 +31,18 @@ func init() {
 }
 
 func initiate(c appengine.Context) (azID, proxy, userID string) {
+
 	// Get ID Notation (IDs for underlying by expiry)
 	txt, err := fetchContent(c, URLIDNOTATION)
 	if err != nil {
 		c.Errorf("%v", err)
+		return
+	}
+
+	//lets test the datastore can be deleted later
+	err = storeData((time.Now().UnixNano() / 1e6), "Test entry in datastore", true, c)
+	if err != nil {
+		c.Errorf("Storing Error %v", err)
 		return
 	}
 
@@ -57,7 +72,6 @@ func initiate(c appengine.Context) (azID, proxy, userID string) {
 	}
 
 	txt, err = fetchContent(c, urlUserID)
-
 	if len(txt) < 1 {
 		c.Errorf("Got empty userID respones")
 		return
@@ -81,17 +95,27 @@ func initiate(c appengine.Context) (azID, proxy, userID string) {
 
 	urlPrice, err := prepareURL(URLPrice, proxy, azID, userID)
 	txt, err = postContent(c, urlPrice, postValue)
-
-	// fmt.Fprintf(w, "AZID: %.5s...\nUSERID: %.5s...\nInitialization successful.\n\n", azID, userID)
+	err = storeData(unixTime, txt, false, c)
+	if err != nil {
+		c.Errorf("Storing error: %v", err)
+		return
+	}
 
 	//Request Data Update
-	urlUpdate, err := prepareURL(URLUpdate, proxy, azID, userID, strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
+	urlUpdate, err := prepareURL(URLUpdate, proxy, azID, userID,
+		strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
 	if err != nil {
 		c.Errorf("%v", err)
 		return
 	}
 
 	txt, err = fetchContent(c, urlUpdate)
+	err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
+	if err != nil {
+		c.Errorf("Storing error: %v", err)
+		return
+	}
+
 	return azID, proxy, userID
 }
 
@@ -113,12 +137,22 @@ func update(c appengine.Context, azID string, proxy string, userID string) {
 		c.Errorf("%v", err)
 		return
 	}
+
 	txt, err := fetchContent(c, pushUpdate)
+	err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
+	if err != nil {
+		c.Errorf("Storing error: %v", err)
+		return
+	}
 
 	c.Debugf("Got Values: %s", txt)
 
 	if strings.Contains(txt, "421 InvalidPushClientId") {
 		c.Errorf("Invalid Push Client ID - Start init again")
+		time.Sleep(1000 * time.Millisecond)
+		//Let's initialize again
+		azID, proxy, userID := initiate(c)
+		scheduleNextUpdate.Call(c, azID, proxy, userID)
 		return
 	}
 
@@ -200,4 +234,29 @@ func startUpdates(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	azID, proxy, userID := initiate(c)
 	scheduleNextUpdate.Call(c, azID, proxy, userID)
+}
+
+func storeData(unixTime int64, txt string, update bool,
+	c appengine.Context) error {
+
+	if unixTime == 0 || txt == "" || c == nil {
+		return errors.New("no arguments given")
+	}
+
+	txt = fmt.Sprintf("%0.400s", txt)
+	blob := DatastoreEntry{
+		Timestamp:  unixTime,
+		BlobValues: txt,
+		Update:     false,
+	}
+
+	incompleteKey := datastore.NewIncompleteKey(c, "datastoreEntry", nil)
+	key, err := datastore.Put(c, incompleteKey, &blob)
+
+	c.Debugf("Datastore key: %v", key)
+
+	if err != nil {
+		return err
+	}
+	return nil
 }
