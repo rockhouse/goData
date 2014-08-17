@@ -4,38 +4,35 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"appengine"
+	"appengine/delay"
 	"appengine/urlfetch"
 )
 
-var azID, proxy, userID string
+var scheduleNextUpdate *delay.Function
 
 func init() {
+	scheduleNextUpdate = delay.Func("key", update)
 	http.HandleFunc("/", help)
-	http.HandleFunc("/init", initiate)
-	http.HandleFunc("/update", update)
+	http.HandleFunc("/startUpdates", startUpdates)
 }
 
-//check push
-func initiate(w http.ResponseWriter, r *http.Request) {
-	c := appengine.NewContext(r)
-
+func initiate(c appengine.Context) (azID, proxy, userID string) {
 	// Get ID Notation (IDs for underlying by expiry)
 	txt, err := fetchContent(c, URLIDNOTATION)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf("%v", err)
 		return
 	}
 
 	notationIDs, err := extractNotationIDs(txt)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf(err.Error())
 		return
 	}
@@ -43,7 +40,6 @@ func initiate(w http.ResponseWriter, r *http.Request) {
 	// Get azID
 	txt, err = fetchContent(c, URLID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf("%v", err)
 		return
 	}
@@ -52,12 +48,10 @@ func initiate(w http.ResponseWriter, r *http.Request) {
 	c.Debugf("API AZID: %v", azID)
 
 	// Get user id
-	//unixTime := (time.Now().UnixNano() / 1e6)
 	unixTime := (time.Now().UnixNano() / 1e6)
 
 	urlUserID, err := prepareURL(URLUserID, azID, strconv.FormatInt(unixTime, 10))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf("%v", err)
 		return
 	}
@@ -66,15 +60,13 @@ func initiate(w http.ResponseWriter, r *http.Request) {
 
 	if len(txt) < 1 {
 		c.Errorf("Got empty userID respones")
-		http.Error(w, "Got empty userID respones", http.StatusInternalServerError)
 		return
 	}
 
 	userID = strings.TrimSpace(strings.Split(txt, ";")[6])
 	proxy = strings.TrimSpace(strings.Split(txt, ";")[9])
 	if strings.Contains(userID, "-ZpUK.") {
-		c.Errorf("Got wrong userID respones")
-		http.Error(w, "Got wrong userID respones", http.StatusInternalServerError)
+		c.Errorf("Got problematic userID respones %s", userID)
 		//	return
 	}
 	c.Debugf("FOUND USERID: %v", userID)
@@ -90,55 +82,48 @@ func initiate(w http.ResponseWriter, r *http.Request) {
 	urlPrice, err := prepareURL(URLPrice, proxy, azID, userID)
 	txt, err = postContent(c, urlPrice, postValue)
 
-	fmt.Fprintf(w, "AZID: %.5s...\nUSERID: %.5s...\nInitialization successful.\n\n", azID, userID)
+	// fmt.Fprintf(w, "AZID: %.5s...\nUSERID: %.5s...\nInitialization successful.\n\n", azID, userID)
 
 	//Request Data Update
 	urlUpdate, err := prepareURL(URLUpdate, proxy, azID, userID, strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf("%v", err)
 		return
 	}
 
 	txt, err = fetchContent(c, urlUpdate)
-
-	fmt.Fprintf(w, "%s", txt)
-	c.Debugf("Starting Background Task")
-	go CreateTestLogEntry(c)
-	time.Sleep(60000 * time.Millisecond)
+	return azID, proxy, userID
 }
 
 func help(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Available Commands:\n /init \n /update \n")
 	fmt.Fprint(w, "Available Commands:\n /init \n /update \n")
+	log.Print("TEST ERROR MESSAGE WITHOUT REQUEST")
 }
 
-func update(w http.ResponseWriter, r *http.Request) {
-	c := appengine.NewContext(r)
-	c.Debugf("Update function")
-
+func update(c appengine.Context, azID string, proxy string, userID string) {
 	if proxy == "" || azID == "" || userID == "" {
-		http.Error(w, "ERROR: proxy, azID or userID unknown. Did you run init first?", http.StatusInternalServerError)
+		c.Debugf("ERROR: proxy, azID or userID unknown. Did you run init first?")
 		return
 	}
 
 	pushUpdate, err := prepareURL(PushUpdate, proxy, azID, userID,
 		strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		c.Errorf("%v", err)
 		return
 	}
 	txt, err := fetchContent(c, pushUpdate)
 
-	fmt.Fprintf(w, "AZID: %.5s...\nUSERID: %.5s...\n\n", azID, userID)
-	fmt.Fprintf(w, "%s", txt)
+	c.Debugf("Got Values: %s", txt)
 
 	if strings.Contains(txt, "421 InvalidPushClientId") {
-		http.Error(w, "Invalid Push Client ID - Start init again", http.StatusInternalServerError)
 		c.Errorf("Invalid Push Client ID - Start init again")
 		return
 	}
 
+	time.Sleep(1000 * time.Millisecond)
+	scheduleNextUpdate.Call(c, azID, proxy, userID)
 }
 
 // Extracts the three NotationIDs from a given string. Returns an error
@@ -211,12 +196,8 @@ func prepareURL(tmpl string, values ...string) (string, error) {
 	return returnValue, nil
 }
 
-var i int
-
-func CreateTestLogEntry(c appengine.Context) {
-	for {
-		i++
-		c.Debugf("tick %d", i)
-		time.Sleep(1000 * time.Millisecond)
-	}
+func startUpdates(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	azID, proxy, userID := initiate(c)
+	scheduleNextUpdate.Call(c, azID, proxy, userID)
 }
