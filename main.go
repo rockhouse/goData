@@ -25,21 +25,27 @@ type DatastoreEntry struct {
 	Update     bool
 }
 
+type AssetParams struct {
+	AzID   string
+	Proxy  string
+	UserID string
+}
+
 var scheduleNextUpdate *delay.Function
 
 func init() {
-	scheduleNextUpdate = delay.Func("key", update)
+	scheduleNextUpdate = delay.Func("key", updateTask)
 	http.HandleFunc("/", help)
 	http.HandleFunc("/startUpdates", startUpdates)
 }
 
-func initiate(c appengine.Context, asset string) (azID, proxy, userID string, err error) {
-	azID, notationIDs, err := getAzID(c, asset)
+func initiateAsset(c appengine.Context, assedID string) (AssetParams, error) {
+	azID, notationIDs, err := getAzID(c, assedID)
 	if err != nil {
 		c.Errorf("%v", err)
 	}
 
-	userID, proxy, err = getUserID(c, azID)
+	userID, proxy, err := getUserID(c, azID)
 	if err != nil {
 		c.Errorf("%v", err)
 	}
@@ -47,11 +53,11 @@ func initiate(c appengine.Context, asset string) (azID, proxy, userID string, er
 	price, err := getPrice(c, azID, notationIDs,
 		proxy, userID)
 	if err != nil {
-		return "", "", "", err
+		return AssetParams{}, err
 	}
 	c.Debugf("PRICE RESPONSE: %v", price)
 
-	return azID, proxy, userID, nil
+	return AssetParams{azID, proxy, userID}, nil
 }
 
 func getUserID(c appengine.Context, azID string) (userID string,
@@ -67,7 +73,6 @@ func getUserID(c appengine.Context, azID string) (userID string,
 	if len(txt) < 1 {
 		return "", "", errors.New("Got empty userID respones")
 	}
-
 	userID = strings.TrimSpace(strings.Split(txt, ";")[6])
 	proxy = strings.TrimSpace(strings.Split(txt, ";")[9])
 	if strings.Contains(userID, "-ZpUK.") {
@@ -101,6 +106,8 @@ func getPrice(c appengine.Context, azID string, notationIDs []string,
 func getAzID(c appengine.Context, asset string) (azID string, notationIDs []string, err error) {
 	// Get ID Notation (IDs for underlying by expiry)
 	urlIDNotation, err := prepareURL(URLIDNOTATION, asset)
+
+	c.Debugf("urlIDNotation %s", URLIDNOTATION)
 	if err != nil {
 		return "", nil, err
 	}
@@ -129,14 +136,26 @@ func getAzID(c appengine.Context, asset string) (azID string, notationIDs []stri
 func help(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Available Commands:\n /startUpdates \n")
 }
+func updateTask(c appengine.Context, assetsParams []AssetParams) {
 
-func update(c appengine.Context, azID string, proxy string, userID string) {
-	if proxy == "" || azID == "" || userID == "" {
+	for _, v := range assetsParams {
+		update(c, v)
+		time.Sleep(20 * time.Millisecond) // to reduce the pressure at the remote
+	}
+
+	time.Sleep(1000 * time.Millisecond)
+	//Is it time to stop and go home?
+
+	scheduleNextUpdate.Call(c, assetsParams)
+}
+
+func update(c appengine.Context, asset AssetParams) {
+	if asset.Proxy == "" || asset.AzID == "" || asset.UserID == "" {
 		c.Debugf("ERROR: proxy, azID or userID unknown. Did you run init first?")
 		return
 	}
 
-	pushUpdate, err := prepareURL(PushUpdate, proxy, azID, userID,
+	pushUpdate, err := prepareURL(PushUpdate, asset.Proxy, asset.AzID, asset.UserID,
 		strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
 	if err != nil {
 		c.Errorf("%v", err)
@@ -152,20 +171,20 @@ func update(c appengine.Context, azID string, proxy string, userID string) {
 		}
 	}
 
-	c.Debugf("\n\nNew Values:\n#################\n%s", txt)
-
-	if strings.Contains(txt, "421 InvalidPushClientId") {
-		c.Errorf("Invalid Push Client ID - Start init again")
-		time.Sleep(1000 * time.Millisecond)
-		//Let's initialize again
-		azID, proxy, userID, err := initiate(c, assets[0])
-		if err != nil {
-			c.Errorf("%v", err)
-			return
-		}
-		scheduleNextUpdate.Call(c, azID, proxy, userID)
-		return
-	}
+	c.Debugf("\n\nNEW VALUES ASSET(%s):\n###############################\n%s", asset.UserID, txt)
+	//TODO
+	// if strings.Contains(txt, "421 InvalidPushClientId") {
+	// 	c.Errorf("Invalid Push Client ID - Start init again")
+	// 	time.Sleep(1000 * time.Millisecond)
+	// 	//Let's initialize again
+	// 	assetParams, err := initiateAsset(c, assets[0])
+	// 	if err != nil {
+	// 		c.Errorf("%v", err)
+	// 		return
+	// 	}
+	// 	scheduleNextUpdate.Call(c, azID, proxy, userID)
+	// 	return
+	// }
 	//Is it time to stop working?
 	t, err := timeToDie(time.Now())
 	if t {
@@ -176,10 +195,6 @@ func update(c appengine.Context, azID string, proxy string, userID string) {
 	// 	return
 	// }
 
-	time.Sleep(1000 * time.Millisecond)
-	//Is it time to stop and go home?
-
-	scheduleNextUpdate.Call(c, azID, proxy, userID)
 }
 
 // Extracts the three NotationIDs from a given string. Returns an error
@@ -205,7 +220,6 @@ func postContent(c appengine.Context, url string, content string) (string, error
 		return "", err
 	}
 	txt, err := sendReq(c, req)
-	c.Debugf("WAS HERE WITH %v", txt, err)
 	return txt, err
 }
 
@@ -257,13 +271,19 @@ func prepareURL(tmpl string, values ...string) (string, error) {
 
 func startUpdates(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
-	azIDs, proxy, userID, _ := initiate(c, assets[0])
-	c.Debugf("JJJJ"+azIDs, proxy, userID)
+	allParams := []AssetParams{}
+	for i := range assets {
+		params, err := initiateAsset(c, assets[i])
+		if err != nil {
+			c.Errorf("Errors during inital of asset %s Error: %s", assets[i], err)
+		}
+		allParams = append(allParams, params)
+	}
 	// if err != nil {
 	// 	c.Errorf("%v", err)
 	// 	return
 	// }
-	scheduleNextUpdate.Call(c, azIDs, proxy, userID)
+	scheduleNextUpdate.Call(c, allParams)
 }
 
 func storeData(unixTime int64, txt string, update bool,
