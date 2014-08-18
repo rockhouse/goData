@@ -139,13 +139,15 @@ func update(c appengine.Context, azID string, proxy string, userID string) {
 	}
 
 	txt, err := fetchContent(c, pushUpdate)
-	err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
-	if err != nil {
-		c.Errorf("Storing error: %v", err)
-		return
+	if txt != "" {
+		err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
+		if err != nil {
+			c.Errorf("Storing error: %v", err)
+			return
+		}
 	}
 
-	c.Debugf("Got Values: %s", txt)
+	c.Debugf("\n\nNew Values:\n#################\n%s", txt)
 
 	if strings.Contains(txt, "421 InvalidPushClientId") {
 		c.Errorf("Invalid Push Client ID - Start init again")
@@ -196,7 +198,7 @@ func postContent(c appengine.Context, url string, content string) (string, error
 }
 
 func fetchContent(c appengine.Context, url string) (string, error) {
-	c.Debugf("Fetching URL: %v", url)
+	// c.Debugf("Fetching URL: %v", url)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -223,7 +225,7 @@ func sendReq(c appengine.Context, req *http.Request) (string, error) {
 
 func prepareURL(tmpl string, values ...string) (string, error) {
 	if tmpl == "" || values == nil {
-		return "", errors.New("no arguments given")
+		return "", fmt.Errorf("no arguments given for %0.20s", tmpl)
 	}
 	count := strings.Count(tmpl, "[[?]]")
 
@@ -251,7 +253,8 @@ func storeData(unixTime int64, txt string, update bool,
 	c appengine.Context) error {
 
 	if unixTime == 0 || txt == "" || c == nil {
-		return errors.New("no arguments given")
+		return fmt.Errorf("Unable to store. One of the folling values was empty."+
+			"unixTime=%u, txt=%s, c=%v", unixTime, txt, c)
 	}
 
 	txt = fmt.Sprintf("%0.400s", txt)
@@ -262,9 +265,7 @@ func storeData(unixTime int64, txt string, update bool,
 	}
 
 	incompleteKey := datastore.NewIncompleteKey(c, "datastoreEntry", nil)
-	key, err := datastore.Put(c, incompleteKey, &blob)
-
-	c.Debugf("Datastore key: %v", key)
+	_, err := datastore.Put(c, incompleteKey, &blob)
 
 	if err != nil {
 		return err
@@ -275,7 +276,7 @@ func storeData(unixTime int64, txt string, update bool,
 func timeToDie(t time.Time) (bool, error) {
 	//Time should be UTC! So CET should be 22:00
 	if t.Location() != time.UTC {
-		return false, errors.New("wrong Timezone!")
+		return false, fmt.Errorf("wrong Timezone! Timezone set to: %v", t.Location)
 	}
 	if t.Hour() >= 20 && t.Minute() >= 01 {
 		return true, nil
