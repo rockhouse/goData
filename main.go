@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -34,6 +33,27 @@ func init() {
 	http.HandleFunc("/startUpdates", startUpdates)
 }
 
+func initiate(c appengine.Context, asset string) (azID, proxy, userID string, err error) {
+	azID, notationIDs, err := getAzID(c, asset)
+	if err != nil {
+		c.Errorf("%v", err)
+	}
+
+	userID, proxy, err = getUserID(c, azID)
+	if err != nil {
+		c.Errorf("%v", err)
+	}
+
+	price, err := getPrice(c, azID, notationIDs,
+		proxy, userID)
+	if err != nil {
+		return "", "", "", err
+	}
+	c.Debugf("PRICE RESPONSE: %v", price)
+
+	return azID, proxy, userID, nil
+}
+
 func getUserID(c appengine.Context, azID string) (userID string,
 	proxy string, err error) {
 	unixTime := (time.Now().UnixNano() / 1e6)
@@ -60,6 +80,7 @@ func getUserID(c appengine.Context, azID string) (userID string,
 
 func getPrice(c appengine.Context, azID string, notationIDs []string,
 	proxy string, userID string) (string, error) {
+	c.Debugf("getPrice with\nazID %v\nnotationIDs %v\nproxy %v\n userid %v\n", azID, notationIDs, proxy, userID)
 	//Request Price
 	urlReqPrice, err := prepareURL(URLReqPrice, azID, notationIDs[0], "Hr")
 	postValue := urlReqPrice
@@ -72,7 +93,9 @@ func getPrice(c appengine.Context, azID string, notationIDs []string,
 	if err != nil {
 		return "", err
 	}
-	return postContent(c, urlPrice, postValue)
+	txt, err := postContent(c, urlPrice, postValue)
+	c.Debugf("Got %v", txt, err)
+	return txt, err
 }
 
 func getAzID(c appengine.Context, asset string) (azID string, notationIDs []string, err error) {
@@ -103,68 +126,8 @@ func getAzID(c appengine.Context, asset string) (azID string, notationIDs []stri
 	return azID, notationIDs, nil
 }
 
-func initiate(c appengine.Context) (azIDs, proxies, userIDs []string, err error) {
-	var (
-		// azIDs          []string   = make([]string, len(assets))
-		azsNotationIDs [][]string = make([][]string, len(assets))
-		// proxy          string     = ""
-		// userIDs        []string   = make([]string, len(assets))
-	)
-
-	for _, asset := range assets {
-		azID, notationIDs, err := getAzID(c, asset)
-		if err != nil {
-			c.Errorf("%v", err)
-		}
-		azIDs = append(azIDs, azID)
-		azsNotationIDs = append(azsNotationIDs, notationIDs)
-	}
-
-	for _, azID := range azIDs {
-		userID, proxy, err := getUserID(c, azID)
-		if err != nil {
-			c.Errorf("%v", err)
-		}
-		userIDs = append(userIDs, userID)
-		proxies = append(proxies, proxy)
-	}
-
-	for i := range assets {
-		price, err := getPrice(c, azIDs[i], azsNotationIDs[i],
-			proxies[i], userIDs[i])
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		unixTime := (time.Now().UnixNano() / 1e6)
-		err = storeData(unixTime, price, false, c)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	}
-
-	//Request Data Update
-	// TODO: Needless? The same is done in Update or?
-	// urlUpdate, err := prepareURL(URLUpdate, proxy, azID, userID,
-	// 	strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
-	// if err != nil {
-	// 	c.Errorf("%v", err)
-	// 	return
-	// }
-	//
-	// txt, err = fetchContent(c, urlUpdate)
-	// err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
-	// if err != nil {
-	// 	c.Errorf("Storing error: %v", err)
-	// 	return
-	// }
-
-	return azIDs, proxies, userIDs, nil
-}
-
 func help(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Available Commands:\n /init \n /update \n")
-	fmt.Fprint(w, "Available Commands:\n /init \n /update \n")
-	log.Print("TEST ERROR MESSAGE WITHOUT REQUEST")
+	fmt.Println("Available Commands:\n /startUpdates \n")
 }
 
 func update(c appengine.Context, azID string, proxy string, userID string) {
@@ -195,7 +158,7 @@ func update(c appengine.Context, azID string, proxy string, userID string) {
 		c.Errorf("Invalid Push Client ID - Start init again")
 		time.Sleep(1000 * time.Millisecond)
 		//Let's initialize again
-		azID, proxy, userID, err := initiate(c)
+		azID, proxy, userID, err := initiate(c, assets[0])
 		if err != nil {
 			c.Errorf("%v", err)
 			return
@@ -208,10 +171,10 @@ func update(c appengine.Context, azID string, proxy string, userID string) {
 	if t {
 		return
 	}
-	if err != nil {
-		c.Errorf("Error with TimeZone: %v", err)
-		return
-	}
+	// if err != nil {
+	// 	c.Errorf("Error with TimeZone: %v", err)
+	// 	return
+	// }
 
 	time.Sleep(1000 * time.Millisecond)
 	//Is it time to stop and go home?
@@ -238,9 +201,12 @@ func postContent(c appengine.Context, url string, content string) (string, error
 	req, err := http.NewRequest("POST", url, strings.NewReader(content))
 	req.Header.Add("Content-Type", "text/plain; charset=UTF-8")
 	if err != nil {
+
 		return "", err
 	}
-	return sendReq(c, req)
+	txt, err := sendReq(c, req)
+	c.Debugf("WAS HERE WITH %v", txt, err)
+	return txt, err
 }
 
 func fetchContent(c appengine.Context, url string) (string, error) {
@@ -291,11 +257,12 @@ func prepareURL(tmpl string, values ...string) (string, error) {
 
 func startUpdates(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
-	azIDs, proxy, userID, err := initiate(c)
-	if err != nil {
-		c.Errorf("%v", err)
-		return
-	}
+	azIDs, proxy, userID, _ := initiate(c, assets[0])
+	c.Debugf("JJJJ"+azIDs, proxy, userID)
+	// if err != nil {
+	// 	c.Errorf("%v", err)
+	// 	return
+	// }
 	scheduleNextUpdate.Call(c, azIDs, proxy, userID)
 }
 
