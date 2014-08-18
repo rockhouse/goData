@@ -16,6 +16,10 @@ import (
 	"appengine/urlfetch"
 )
 
+var assets = []string{"4744-18954/18956", //one Asset
+	"4744-18954/18956", // another asset
+	"4744-18954/18956"}
+
 type DatastoreEntry struct {
 	Timestamp  int64
 	BlobValues string
@@ -30,61 +34,32 @@ func init() {
 	http.HandleFunc("/startUpdates", startUpdates)
 }
 
-func initiate(c appengine.Context) (azID, proxy, userID string) {
-
-	// Get ID Notation (IDs for underlying by expiry)
-	txt, err := fetchContent(c, URLIDNOTATION)
-	if err != nil {
-		c.Errorf("%v", err)
-		return
-	}
-
-	//lets test the datastore can be deleted later
-	err = storeData((time.Now().UnixNano() / 1e6), "Test entry in datastore", true, c)
-	if err != nil {
-		c.Errorf("Storing Error %v", err)
-		return
-	}
-
-	notationIDs, err := extractNotationIDs(txt)
-	if err != nil {
-		c.Errorf(err.Error())
-		return
-	}
-
-	// Get azID
-	txt, err = fetchContent(c, URLID)
-	if err != nil {
-		c.Errorf("%v", err)
-		return
-	}
-
-	azID = txt[strings.Index(txt, AuthID)+19 : strings.Index(txt, "==\";")+2]
-	c.Debugf("API AZID: %v", azID)
-
-	// Get user id
+func getUserID(c appengine.Context, azID string) (userID string,
+	proxy string, err error) {
 	unixTime := (time.Now().UnixNano() / 1e6)
 
 	urlUserID, err := prepareURL(URLUserID, azID, strconv.FormatInt(unixTime, 10))
 	if err != nil {
-		c.Errorf("%v", err)
-		return
+		return "", "", err
 	}
 
-	txt, err = fetchContent(c, urlUserID)
+	txt, err := fetchContent(c, urlUserID)
 	if len(txt) < 1 {
-		c.Errorf("Got empty userID respones")
-		return
+		return "", "", errors.New("Got empty userID respones")
 	}
 
 	userID = strings.TrimSpace(strings.Split(txt, ";")[6])
 	proxy = strings.TrimSpace(strings.Split(txt, ";")[9])
 	if strings.Contains(userID, "-ZpUK.") {
 		c.Errorf("Got problematic userID respones %s", userID)
-		//	return
 	}
 	c.Debugf("FOUND USERID: %v", userID)
 
+	return userID, proxy, nil
+}
+
+func getPrice(c appengine.Context, azID string, notationIDs []string,
+	proxy string, userID string) (string, error) {
 	//Request Price
 	urlReqPrice, err := prepareURL(URLReqPrice, azID, notationIDs[0], "Hr")
 	postValue := urlReqPrice
@@ -94,29 +69,96 @@ func initiate(c appengine.Context) (azID, proxy, userID string) {
 	postValue += urlReqPrice
 
 	urlPrice, err := prepareURL(URLPrice, proxy, azID, userID)
-	txt, err = postContent(c, urlPrice, postValue)
-	err = storeData(unixTime, txt, false, c)
 	if err != nil {
-		c.Errorf("Storing error: %v", err)
-		return
+		return "", err
+	}
+	return postContent(c, urlPrice, postValue)
+}
+
+func getAzID(c appengine.Context, asset string) (azID string, notationIDs []string, err error) {
+	// Get ID Notation (IDs for underlying by expiry)
+	urlIDNotation, err := prepareURL(URLIDNOTATION, asset)
+	if err != nil {
+		return "", nil, err
+	}
+	txt, err := fetchContent(c, urlIDNotation)
+	if err != nil {
+		return "", nil, err
+	}
+
+	notationIDs, err = extractNotationIDs(txt)
+	if err != nil {
+		return "", nil, err
+	}
+
+	// Get the final azID
+	txt, err = fetchContent(c, URLID)
+	if err != nil {
+		return "", nil, err
+	}
+
+	azID = txt[strings.Index(txt, AuthID)+19 : strings.Index(txt, "==\";")+2]
+
+	c.Debugf("API AZID: %v", azID)
+	return azID, notationIDs, nil
+}
+
+func initiate(c appengine.Context) (azIDs, proxies, userIDs []string, err error) {
+	var (
+		// azIDs          []string   = make([]string, len(assets))
+		azsNotationIDs [][]string = make([][]string, len(assets))
+		// proxy          string     = ""
+		// userIDs        []string   = make([]string, len(assets))
+	)
+
+	for _, asset := range assets {
+		azID, notationIDs, err := getAzID(c, asset)
+		if err != nil {
+			c.Errorf("%v", err)
+		}
+		azIDs = append(azIDs, azID)
+		azsNotationIDs = append(azsNotationIDs, notationIDs)
+	}
+
+	for _, azID := range azIDs {
+		userID, proxy, err := getUserID(c, azID)
+		if err != nil {
+			c.Errorf("%v", err)
+		}
+		userIDs = append(userIDs, userID)
+		proxies = append(proxies, proxy)
+	}
+
+	for i := range assets {
+		price, err := getPrice(c, azIDs[i], azsNotationIDs[i],
+			proxies[i], userIDs[i])
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		unixTime := (time.Now().UnixNano() / 1e6)
+		err = storeData(unixTime, price, false, c)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	//Request Data Update
-	urlUpdate, err := prepareURL(URLUpdate, proxy, azID, userID,
-		strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
-	if err != nil {
-		c.Errorf("%v", err)
-		return
-	}
+	// TODO: Needless? The same is done in Update or?
+	// urlUpdate, err := prepareURL(URLUpdate, proxy, azID, userID,
+	// 	strconv.FormatInt(time.Now().UnixNano()/1e6, 10))
+	// if err != nil {
+	// 	c.Errorf("%v", err)
+	// 	return
+	// }
+	//
+	// txt, err = fetchContent(c, urlUpdate)
+	// err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
+	// if err != nil {
+	// 	c.Errorf("Storing error: %v", err)
+	// 	return
+	// }
 
-	txt, err = fetchContent(c, urlUpdate)
-	err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
-	if err != nil {
-		c.Errorf("Storing error: %v", err)
-		return
-	}
-
-	return azID, proxy, userID
+	return azIDs, proxies, userIDs, nil
 }
 
 func help(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +193,11 @@ func update(c appengine.Context, azID string, proxy string, userID string) {
 		c.Errorf("Invalid Push Client ID - Start init again")
 		time.Sleep(1000 * time.Millisecond)
 		//Let's initialize again
-		azID, proxy, userID := initiate(c)
+		azID, proxy, userID, err := initiate(c)
+		if err != nil {
+			c.Errorf("%v", err)
+			return
+		}
 		scheduleNextUpdate.Call(c, azID, proxy, userID)
 		return
 	}
@@ -243,8 +289,12 @@ func prepareURL(tmpl string, values ...string) (string, error) {
 
 func startUpdates(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
-	azID, proxy, userID := initiate(c)
-	scheduleNextUpdate.Call(c, azID, proxy, userID)
+	azIDs, proxy, userID, err := initiate(c)
+	if err != nil {
+		c.Errorf("%v", err)
+		return
+	}
+	scheduleNextUpdate.Call(c, azIDs, proxy, userID)
 }
 
 func storeData(unixTime int64, txt string, update bool,
