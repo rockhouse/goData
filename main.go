@@ -12,12 +12,13 @@ import (
 	"appengine"
 	"appengine/datastore"
 	"appengine/delay"
+	"appengine/memcache"
 	"appengine/urlfetch"
 )
 
 var assets = []string{"4744-18954/18956", //one Asset
 	"4744-18954/18956", // another asset
-	"4744-18954/18956"}
+}
 
 type DatastoreEntry struct {
 	Timestamp  int64
@@ -26,21 +27,31 @@ type DatastoreEntry struct {
 }
 
 type AssetParams struct {
-	AzID   string
-	Proxy  string
-	UserID string
+	AssetID string
+	AzID    string
+	Proxy   string
+	UserID  string
+}
+
+func saveDataEntry(c appengine.Context, assetID string, payload string) {
+	payload = strings.Replace(payload, "\n", "", -1)
+	c.Infof("ASSETDATA %s: %s", assetID, payload)
+
+	// write meta to memcache
+	a := NewAssetMeta(assetID)
+	a.Cache(c)
 }
 
 var scheduleNextUpdate *delay.Function
 
 func init() {
-	scheduleNextUpdate = delay.Func("key", updateTask)
+	scheduleNextUpdate = delay.Func("updateQueue", updateTask)
 	http.HandleFunc("/", help)
-	http.HandleFunc("/startUpdates", startUpdates)
+	http.HandleFunc("/startUpdates", startUpdateQueues)
 }
 
-func initiateAsset(c appengine.Context, assedID string) (AssetParams, error) {
-	azID, notationIDs, err := getAzID(c, assedID)
+func initiateAsset(c appengine.Context, assetID string) (AssetParams, error) {
+	azID, notationIDs, err := getAzID(c, assetID)
 	if err != nil {
 		c.Errorf("%v", err)
 	}
@@ -57,7 +68,7 @@ func initiateAsset(c appengine.Context, assedID string) (AssetParams, error) {
 	}
 	c.Debugf("PRICE RESPONSE: %v", price)
 
-	return AssetParams{azID, proxy, userID}, nil
+	return AssetParams{assetID, azID, proxy, userID}, nil
 }
 
 func getUserID(c appengine.Context, azID string) (userID string,
@@ -136,17 +147,18 @@ func getAzID(c appengine.Context, asset string) (azID string, notationIDs []stri
 func help(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Available Commands:\n /startUpdates \n")
 }
-func updateTask(c appengine.Context, assetsParams []AssetParams) {
 
-	for _, v := range assetsParams {
-		update(c, v)
-		time.Sleep(20 * time.Millisecond) // to reduce the pressure at the remote
-	}
+func updateTask(c appengine.Context, params AssetParams) {
+	update(c, params)
 
 	time.Sleep(1000 * time.Millisecond)
 	//Is it time to stop and go home?
 
-	scheduleNextUpdate.Call(c, assetsParams)
+	t, err := timeToDie(time.Now())
+	if t || err != nil {
+
+	}
+	scheduleNextUpdate.Call(c, params)
 }
 
 func update(c appengine.Context, asset AssetParams) {
@@ -163,15 +175,7 @@ func update(c appengine.Context, asset AssetParams) {
 	}
 
 	txt, err := fetchContent(c, pushUpdate)
-	if txt != "" {
-		err = storeData((time.Now().UnixNano() / 1e6), txt, true, c)
-		if err != nil {
-			c.Errorf("Storing error: %v", err)
-			return
-		}
-	}
-
-	c.Debugf("\n\nNEW VALUES ASSET(%s):\n###############################\n%s", asset.UserID, txt)
+	saveDataEntry(c, asset.AssetID, txt)
 	//TODO
 	// if strings.Contains(txt, "421 InvalidPushClientId") {
 	// 	c.Errorf("Invalid Push Client ID - Start init again")
@@ -186,10 +190,6 @@ func update(c appengine.Context, asset AssetParams) {
 	// 	return
 	// }
 	//Is it time to stop working?
-	t, err := timeToDie(time.Now())
-	if t {
-		return
-	}
 	// if err != nil {
 	// 	c.Errorf("Error with TimeZone: %v", err)
 	// 	return
@@ -269,21 +269,15 @@ func prepareURL(tmpl string, values ...string) (string, error) {
 	return returnValue, nil
 }
 
-func startUpdates(w http.ResponseWriter, r *http.Request) {
+func startUpdateQueues(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
-	allParams := []AssetParams{}
 	for i := range assets {
 		params, err := initiateAsset(c, assets[i])
 		if err != nil {
 			c.Errorf("Errors during inital of asset %s Error: %s", assets[i], err)
 		}
-		allParams = append(allParams, params)
+		scheduleNextUpdate.Call(c, params)
 	}
-	// if err != nil {
-	// 	c.Errorf("%v", err)
-	// 	return
-	// }
-	scheduleNextUpdate.Call(c, allParams)
 }
 
 func storeData(unixTime int64, txt string, update bool,
@@ -319,4 +313,57 @@ func timeToDie(t time.Time) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// AssetMeta represents data like last update and is ment to be stored in Memcache
+type AssetMeta struct {
+	AssetID    string
+	LastUpdate time.Time
+}
+
+func NewAssetMeta(assetID string) *AssetMeta {
+	a := &AssetMeta{
+		assetID,
+		time.Now()}
+	return a
+}
+
+// Cache stores the assets metadata with a new timestamp into Memcache.
+func (a *AssetMeta) Cache(c appengine.Context) {
+	item := &memcache.Item{
+		Key:    a.AssetID,
+		Object: a,
+	}
+	memcache.JSON.Set(c, item)
+}
+
+func (a *AssetMeta) MsSinceCache(c appengine.Context) int {
+	_, err := memcache.JSON.Get(c, a.AssetID, a)
+	if err != nil {
+		return -1
+	}
+
+	age := time.Now().Sub(a.LastUpdate)
+	return int(age / time.Millisecond)
+}
+
+func init() {
+	http.HandleFunc("/age", timeSiceLastCache)
+}
+
+func timeSiceLastCache(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	for key := range r.URL.Query() {
+
+		a := &AssetMeta{AssetID: key}
+		age := a.MsSinceCache(c)
+		fmt.Fprintf(w, "%v: Last update %vms ago.\n", key, age)
+		break
+	}
+}
+func get(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	a := &AssetMeta{AssetID: "2testasset"}
+	age := a.MsSinceCache(c)
+	c.Debugf("It's %vms ago.\n", age)
 }

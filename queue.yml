@@ -1,0 +1,4 @@
+# Set the total storage limit for all queues to 120MB
+queue:
+- name: updateQueue
+  rate: 0.5/s
