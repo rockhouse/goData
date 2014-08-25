@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"appengine"
-	"appengine/datastore"
 	"appengine/delay"
 	"appengine/memcache"
 	"appengine/urlfetch"
@@ -18,12 +17,6 @@ import (
 
 var assets = []string{"4744-18954/18956", //one Asset
 	"4744-18954/18956", // another asset
-}
-
-type DatastoreEntry struct {
-	Timestamp  int64
-	BlobValues string
-	Update     bool
 }
 
 type AssetParams struct {
@@ -34,7 +27,12 @@ type AssetParams struct {
 }
 
 func saveDataEntry(c appengine.Context, assetID string, payload string) {
-	payload = strings.Replace(payload, "\n", "", -1)
+
+	// get a better log-format
+	payload = strings.Replace(payload, "\n", "", -1) // Remove all newlines to
+
+	//Write to log
+	//Get logfile with: appcfg.py request_logs --severity=0 -n 1 . mylogs.txt
 	c.Infof("ASSETDATA %s: %s", assetID, payload)
 
 	// write meta to memcache
@@ -48,6 +46,7 @@ func init() {
 	scheduleNextUpdate = delay.Func("updateQueue", updateTask)
 	http.HandleFunc("/", help)
 	http.HandleFunc("/startUpdates", startUpdateQueues)
+	http.HandleFunc("/age", timeSiceLastCache)
 }
 
 func initiateAsset(c appengine.Context, assetID string) (AssetParams, error) {
@@ -151,14 +150,17 @@ func help(w http.ResponseWriter, r *http.Request) {
 func updateTask(c appengine.Context, params AssetParams) {
 	update(c, params)
 
-	time.Sleep(1000 * time.Millisecond)
 	//Is it time to stop and go home?
-
 	t, err := timeToDie(time.Now())
 	if t || err != nil {
 
 	}
-	scheduleNextUpdate.Call(c, params)
+	//Guarantees that a new update call is send even if urlfetch returns
+	//an error or throws a timeout
+	defer func() {
+		time.Sleep(1000 * time.Millisecond)
+		scheduleNextUpdate.Call(c, params)
+	}()
 }
 
 func update(c appengine.Context, asset AssetParams) {
@@ -280,30 +282,31 @@ func startUpdateQueues(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func storeData(unixTime int64, txt string, update bool,
-	c appengine.Context) error {
+// func storeData(unixTime int64, txt string, update bool,
+// 	c appengine.Context) error {
+//
+// 	if unixTime == 0 || txt == "" || c == nil {
+// 		return fmt.Errorf("Unable to store. One of the folling values was empty."+
+// 			"unixTime=%u, txt=%s, c=%v", unixTime, txt, c)
+// 	}
+//
+// 	txt = fmt.Sprintf("%0.400s", txt)
+// 	blob := DatastoreEntry{
+// 		Timestamp:  unixTime,
+// 		BlobValues: txt,
+// 		Update:     false,
+// 	}
+//
+// 	incompleteKey := datastore.NewIncompleteKey(c, "datastoreEntry", nil)
+// 	_, err := datastore.Put(c, incompleteKey, &blob)
+//
+// 	if err != nil {
+// 		return err
+// 	}
+// 	return nil
+// }
 
-	if unixTime == 0 || txt == "" || c == nil {
-		return fmt.Errorf("Unable to store. One of the folling values was empty."+
-			"unixTime=%u, txt=%s, c=%v", unixTime, txt, c)
-	}
-
-	txt = fmt.Sprintf("%0.400s", txt)
-	blob := DatastoreEntry{
-		Timestamp:  unixTime,
-		BlobValues: txt,
-		Update:     false,
-	}
-
-	incompleteKey := datastore.NewIncompleteKey(c, "datastoreEntry", nil)
-	_, err := datastore.Put(c, incompleteKey, &blob)
-
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
+//timeToDie checks if the current time is after CET 22:00 and stops the task
 func timeToDie(t time.Time) (bool, error) {
 	//Time should be UTC! So CET should be 22:00
 	if t.Location() != time.UTC {
@@ -315,7 +318,7 @@ func timeToDie(t time.Time) (bool, error) {
 	return false, nil
 }
 
-// AssetMeta represents data like last update and is ment to be stored in Memcache
+// AssetMeta represents an assets last update and is ment to be stored in Memcache.
 type AssetMeta struct {
 	AssetID    string
 	LastUpdate time.Time
@@ -347,10 +350,6 @@ func (a *AssetMeta) MsSinceCache(c appengine.Context) int {
 	return int(age / time.Millisecond)
 }
 
-func init() {
-	http.HandleFunc("/age", timeSiceLastCache)
-}
-
 func timeSiceLastCache(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	for key := range r.URL.Query() {
@@ -358,12 +357,13 @@ func timeSiceLastCache(w http.ResponseWriter, r *http.Request) {
 		a := &AssetMeta{AssetID: key}
 		age := a.MsSinceCache(c)
 		fmt.Fprintf(w, "%v: Last update %vms ago.\n", key, age)
+		if age > 10000 {
+			params, err := initiateAsset(c, a.AssetID)
+			if err != nil {
+				c.Errorf("Errors during inital of asset %s Error: %s", a.AssetID, err)
+			}
+			scheduleNextUpdate.Call(c, params)
+		}
 		break
 	}
-}
-func get(w http.ResponseWriter, r *http.Request) {
-	c := appengine.NewContext(r)
-	a := &AssetMeta{AssetID: "2testasset"}
-	age := a.MsSinceCache(c)
-	c.Debugf("It's %vms ago.\n", age)
 }
