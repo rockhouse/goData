@@ -151,9 +151,14 @@ func updateTask(c appengine.Context, params AssetParams) {
 	update(c, params)
 
 	//Is it time to stop and go home?
-	t, err := timeToDie(time.Now())
-	if t || err != nil {
-
+	t, err := timeToDie(time.Now().UTC())
+	if t {
+		c.Debugf("Too late, time to go to bed!")
+		return
+	}
+	if err != nil {
+		c.Errorf("Error with TimeZone: %v", err)
+		return
 	}
 	//Guarantees that a new update call is send even if urlfetch returns
 	//an error or throws a timeout
@@ -357,7 +362,7 @@ func timeSiceLastCache(w http.ResponseWriter, r *http.Request) {
 		a := &AssetMeta{AssetID: key}
 		age := a.MsSinceCache(c)
 		fmt.Fprintf(w, "%v: Last update %vms ago.\n", key, age)
-		if age > 10000 {
+		if age > 5000 {
 			params, err := initiateAsset(c, a.AssetID)
 			if err != nil {
 				c.Errorf("Errors during inital of asset %s Error: %s", a.AssetID, err)
